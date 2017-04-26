@@ -18,6 +18,7 @@
 #include <signal.h>
 
 #include "access/htup_details.h"
+#include "access/undolog.h"
 #include "access/xact.h"
 #include "bootstrap/bootstrap.h"
 #include "catalog/index.h"
