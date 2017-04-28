@@ -33,6 +33,7 @@
 #include "access/twophase.h"
 #include "access/xact.h"
 #include "access/xlog_internal.h"
+#include "access/zheap.h"
 #include "catalog/namespace.h"
 #include "commands/async.h"
 #include "commands/prepare.h"
@@ -1637,6 +1638,17 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
 		},
 		&data_checksums,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"enable_zheap", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Generates debugging output for LISTEN and NOTIFY."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&enable_zheap,
 		false,
 		NULL, NULL, NULL
 	},
