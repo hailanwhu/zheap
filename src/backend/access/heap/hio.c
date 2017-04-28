@@ -20,6 +20,7 @@
 #include "access/htup_details.h"
 #include "access/visibilitymap.h"
 #include "access/zheap.h"
+#include "access/zhtup.h"
 #include "storage/bufmgr.h"
 #include "storage/freespace.h"
 #include "storage/lmgr.h"
@@ -208,12 +209,17 @@ RelationAddExtraBlocks(Relation relation, BulkInsertState bistate)
 		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 		page = BufferGetPage(buffer);
 		if (enable_zheap)
+		{
 			PageInit(page, BufferGetPageSize(buffer), sizeof(ZHeapPageOpaqueData));
+			freespace = PageGetZHeapFreeSpace(page);
+		}
 		else
+		{
 			PageInit(page, BufferGetPageSize(buffer), 0);
+			freespace = PageGetHeapFreeSpace(page);
+		}
 		MarkBufferDirty(buffer);
 		blockNum = BufferGetBlockNumber(buffer);
-		freespace = PageGetHeapFreeSpace(page);
 		UnlockReleaseBuffer(buffer);
 
 		/* Remember first block number thus added. */
@@ -312,7 +318,12 @@ RelationGetBufferForTuple(Relation relation, Size len,
 				otherBlock;
 	bool		needLock;
 
-	len = MAXALIGN(len);		/* be conservative */
+	if (data_alignment_zheap == 0)
+		;	/* no alignment */
+	else if (data_alignment_zheap == 4)
+		len = INTALIGN(len);	/* four byte alignment */
+	else
+		len = MAXALIGN(len);		/* be conservative */
 
 	/* Bulk insert is not supported for updates, only inserts. */
 	Assert(otherBuffer == InvalidBuffer || !bistate);
@@ -467,7 +478,10 @@ loop:
 		 * we're done.
 		 */
 		page = BufferGetPage(buffer);
-		pageFreeSpace = PageGetHeapFreeSpace(page);
+		if (enable_zheap)
+			pageFreeSpace = PageGetZHeapFreeSpace(page);
+		else
+			pageFreeSpace = PageGetHeapFreeSpace(page);
 		if (len + saveFreeSpace <= pageFreeSpace)
 		{
 			/* use this page as future insert target, too */
@@ -595,14 +609,22 @@ loop:
 			 RelationGetRelationName(relation));
 
 	if (enable_zheap)
-		PageInit(page, BufferGetPageSize(buffer), sizeof(ZHeapPageOpaqueData));
-	else
-		PageInit(page, BufferGetPageSize(buffer), 0);
-
-	if (len > PageGetHeapFreeSpace(page))
 	{
-		/* We should not get here given the test at the top */
-		elog(PANIC, "tuple is too big: size %zu", len);
+		PageInit(page, BufferGetPageSize(buffer), sizeof(ZHeapPageOpaqueData));
+		if (len > PageGetZHeapFreeSpace(page))
+		{
+			/* We should not get here given the test at the top */
+			elog(PANIC, "tuple is too big: size %zu", len);
+		}
+	}
+	else
+	{
+		PageInit(page, BufferGetPageSize(buffer), 0);
+		if (len > PageGetHeapFreeSpace(page))
+		{
+			/* We should not get here given the test at the top */
+			elog(PANIC, "tuple is too big: size %zu", len);
+		}
 	}
 
 	/*
