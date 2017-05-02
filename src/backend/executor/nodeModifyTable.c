@@ -581,7 +581,10 @@ ExecInsert(ModifyTableState *mtstate,
 	{
 		(estate->es_processed)++;
 		estate->es_lastoid = newId;
-		setLastTid(&(tuple->t_self));
+		if (enable_zheap)
+			setLastTid(&(ztuple->t_self));
+		else
+			setLastTid(&(tuple->t_self));
 	}
 
 	/* AFTER ROW INSERT Triggers */
