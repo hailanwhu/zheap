@@ -151,6 +151,10 @@ extern TupleTableSlot *ExecStoreTuple(HeapTuple tuple,
 			   TupleTableSlot *slot,
 			   Buffer buffer,
 			   bool shouldFree);
+extern TupleTableSlot *ExecStoreZTuple(ZHeapTuple tuple,
+				TupleTableSlot *slot,
+				Buffer buffer,
+				bool shouldFree);
 extern TupleTableSlot *ExecStoreMinimalTuple(MinimalTuple mtup,
 					  TupleTableSlot *slot,
 					  bool shouldFree);
