@@ -79,9 +79,6 @@
 SnapshotData SnapshotSelfData = {HeapTupleSatisfiesSelf};
 SnapshotData SnapshotAnyData = {HeapTupleSatisfiesAny};
 
-/* local functions */
-static bool XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot);
-
 /*
  * SetHintBits()
  *
@@ -1147,7 +1144,6 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, Snapshot snapshot,
 	return false;
 }
 
-
 /*
  * HeapTupleSatisfiesVacuum
  *
@@ -1460,7 +1456,7 @@ HeapTupleIsSurelyDead(HeapTuple htup, TransactionId OldestXmin)
  * TransactionIdIsCurrentTransactionId first, except for known-committed
  * XIDs which could not be ours anyway.
  */
-static bool
+bool
 XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 {
 	uint32		i;

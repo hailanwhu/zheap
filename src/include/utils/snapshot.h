@@ -15,6 +15,7 @@
 
 #include "access/htup.h"
 #include "access/xlogdefs.h"
+#include "access/zhtup.h"
 #include "lib/pairingheap.h"
 #include "storage/buf.h"
 
@@ -30,6 +31,8 @@ typedef struct SnapshotData *Snapshot;
  * function.
  */
 typedef bool (*SnapshotSatisfiesFunc) (HeapTuple htup,
+										   Snapshot snapshot, Buffer buffer);
+typedef ZHeapTuple (*ZSnapshotSatisfiesFunc) (ZHeapTuple htup,
 										   Snapshot snapshot, Buffer buffer);
 
 /*
@@ -51,6 +54,8 @@ typedef bool (*SnapshotSatisfiesFunc) (HeapTuple htup,
 typedef struct SnapshotData
 {
 	SnapshotSatisfiesFunc satisfies;	/* tuple test function */
+
+	ZSnapshotSatisfiesFunc zsatisfies;	/* zheap tuple test function */
 
 	/*
 	 * The remaining fields are used only for MVCC snapshots, and are normally

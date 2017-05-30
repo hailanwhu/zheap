@@ -45,6 +45,7 @@
 #include "utils/inval.h"
 #include "utils/memdebug.h"
 #include "utils/rel.h"
+#include "utils/tqual.h"
 
 bool	enable_zheap = false;
 /*
@@ -66,6 +67,12 @@ zheap_beginscan_internal(Relation relation, Snapshot snapshot,
 						 bool is_bitmapscan,
 						 bool is_samplescan,
 						 bool temp_snap);
+
+static int PageReserveTransactionSlot(Page page, TransactionId xid);
+static inline UndoRecPtr PageGetUNDO(Page page, int trans_slot_id);
+static inline void PageSetUNDO(Page page, int trans_slot_id, CommandId cid,
+						UndoRecPtr urecptr);
+
 
 /*
  * zheap_fill_tuple
@@ -402,7 +409,7 @@ zheap_prepare_insert(Relation relation, ZHeapTuple tup)
  */
 Oid
 zheap_insert(Relation relation, ZHeapTuple tup, CommandId cid,
-			 int options, BulkInsertState bistate)
+			 int options)
 {
 	TransactionId xid = GetCurrentTransactionId();
 	ZHeapTuple	zheaptup;
@@ -410,9 +417,9 @@ zheap_insert(Relation relation, ZHeapTuple tup, CommandId cid,
 	Buffer		buffer;
 	Buffer		vmbuffer = InvalidBuffer;
 	bool		all_visible_cleared = false;
+	int			trans_slot_id;
 	BlockNumber	blkno;
 	Page		page;
-	ZHeapPageOpaque	opaque;
 	OffsetNumber offnum;
 	UndoRecPtr	urecptr, prev_urecptr;
 
@@ -426,13 +433,39 @@ zheap_insert(Relation relation, ZHeapTuple tup, CommandId cid,
 	 */
 	zheaptup = zheap_prepare_insert(relation, tup);
 
+reacquire_buffer:
 	/*
 	 * Find buffer to insert this tuple into.  If the page is all visible,
 	 * this will also pin the requisite visibility map page.
 	 */
 	buffer = RelationGetBufferForTuple(relation, zheaptup->t_len,
-									   InvalidBuffer, options, bistate,
+									   InvalidBuffer, options, NULL,
 									   &vmbuffer, NULL);
+	page = BufferGetPage(buffer);
+
+	/*
+	 * The transaction information of tuple needs to be set in transaction
+	 * slot, so needs to reserve the slot before proceeding with the actual
+	 * operation.  It will be costly to wait for getting the slot, but we do
+	 * that by releasing the buffer lock.
+	 */
+	trans_slot_id = PageReserveTransactionSlot(page, xid);
+
+	if (trans_slot_id == InvalidXactSlotId)
+	{
+		UnlockReleaseBuffer(buffer);
+
+		pgstat_report_wait_start(PG_WAIT_PAGE_TRANS_SLOT);
+		pg_usleep(10000L);	/* 10 ms */
+		pgstat_report_wait_end();
+
+		goto reacquire_buffer;
+	}
+
+	/* transaction slot must be reserved before adding tuple to page */
+	Assert(trans_slot_id != InvalidXactSlotId);
+
+	ZHeapTupleHeaderSetXactSlot(zheaptup->t_data, trans_slot_id);
 
 	/*
 	 * See heap_insert to know why checking conflicts is important
@@ -441,8 +474,6 @@ zheap_insert(Relation relation, ZHeapTuple tup, CommandId cid,
 	CheckForSerializableConflictIn(relation, NULL, InvalidBuffer);
 
 	/* Add the tuple to the page */
-	page = BufferGetPage(buffer);
-
 	offnum = ZPageAddItem(page, (Item) zheaptup->t_data,
 						 zheaptup->t_len, InvalidOffsetNumber, false, true);
 
@@ -465,9 +496,7 @@ zheap_insert(Relation relation, ZHeapTuple tup, CommandId cid,
 
 	MarkBufferDirty(buffer);
 
-	opaque = (ZHeapPageOpaque) PageGetSpecialPointer(page);
-
-	prev_urecptr = PageGetUNDO(opaque);
+	prev_urecptr = PageGetUNDO(page, trans_slot_id);
 
 	/* prepare an undo record */
 	undorecord.uur_type = UNDO_INSERT;
@@ -489,7 +518,7 @@ zheap_insert(Relation relation, ZHeapTuple tup, CommandId cid,
 	START_CRIT_SECTION();
 
 	InsertPreparedUndo();
-	PageSetUNDO(opaque, xid, urecptr);
+	PageSetUNDO(page, trans_slot_id, cid, urecptr);
 
 	/* XLOG stuff */
 	if (!(options & HEAP_INSERT_SKIP_WAL) && RelationNeedsWAL(relation))
@@ -550,7 +579,7 @@ zheap_insert(Relation relation, ZHeapTuple tup, CommandId cid,
 		XLogBeginInsert();
 		XLogRegisterData((char *) &xlrec, SizeOfZHeapInsert);
 
-		xlhdr.t_numattrs = zheaptup->t_data->t_numattrs;
+		xlhdr.t_infomask2 = zheaptup->t_data->t_infomask2;
 		xlhdr.t_infomask = zheaptup->t_data->t_infomask;
 		xlhdr.t_hoff = zheaptup->t_data->t_hoff;
 
@@ -622,6 +651,135 @@ void
 zheap_freetuple(ZHeapTuple zhtup)
 {
 	pfree(zhtup);
+}
+
+/*
+ * -----------
+ * Zheap transaction information related API's.
+ * -----------
+ */
+
+/*
+ * PageGetUNDO - Get the undo record pointer for a given transaction slot.
+ */
+static inline UndoRecPtr
+PageGetUNDO(Page page, int trans_slot_id)
+{
+	ZHeapPageOpaque	opaque;
+
+	Assert(trans_slot_id != InvalidXactSlotId);
+
+	opaque = (ZHeapPageOpaque) PageGetSpecialPointer(page);
+
+	return opaque->transinfo[trans_slot_id].urec_ptr;
+}
+
+/*
+ * PageSetUNDO - Set the transaction information pointer for a given
+ *		transaction slot.
+ */
+static inline void
+PageSetUNDO(Page page, int trans_slot_id, CommandId cid,
+			UndoRecPtr urecptr)
+{
+	ZHeapPageOpaque	opaque;
+
+	Assert(trans_slot_id != InvalidXactSlotId);
+
+	opaque = (ZHeapPageOpaque) PageGetSpecialPointer(page);
+
+	opaque->transinfo[trans_slot_id].cid = cid;
+	opaque->transinfo[trans_slot_id].urec_ptr = urecptr;
+}
+
+/*
+ * PageReserveTransactionSlot - Reserve the transaction slot in page.
+ *
+ *	This function returns true if either the page already has some slot that
+ *	contains the transaction info or there is an empty slot; otherwise retruns
+ *	false.  This also sets the tranasction id in the reserved slot.
+ */
+static int
+PageReserveTransactionSlot(Page page, TransactionId xid)
+{
+	ZHeapPageOpaque	opaque;
+	int		latestFreeTransSlot = InvalidXactSlotId;
+	int		i;
+
+	opaque = (ZHeapPageOpaque) PageGetSpecialPointer(page);
+
+	for (i = 0; i < MAX_PAGE_TRANS_INFO_SLOTS; i++)
+	{
+		if (opaque->transinfo[i].xid == xid)
+			return i;
+		else if (opaque->transinfo[i].xid == InvalidTransactionId &&
+				 latestFreeTransSlot == InvalidXactSlotId)
+			latestFreeTransSlot = i;
+	}
+
+	if (latestFreeTransSlot >= 0)
+	{
+		opaque->transinfo[latestFreeTransSlot].xid = xid;
+		return latestFreeTransSlot;
+	}
+
+	/* no transaction slot available */
+	return InvalidXactSlotId;
+}
+
+/*
+ * This function is similar to HeapTupleHeaderGetCmin except that it needs
+ * to retrieve the cmin from zheap tuple.
+ */
+CommandId
+ZHeapTupleHeaderGetCid(ZHeapTupleHeader tup, Buffer buf)
+{
+	ZHeapPageOpaque	opaque;
+	CommandId	cid;
+
+	opaque = (ZHeapPageOpaque) PageGetSpecialPointer(BufferGetPage(buf));
+	
+	cid = ZHeapTupleHeaderGetRawCommandId(tup, opaque);
+
+	/*
+	 * Fixme : We need to define and use ZHeapTupleHeaderGetXmin, once we
+	 * we decide whether we need to freeze the tuples like we do for regular
+	 * heap.
+	 */
+	Assert(TransactionIdIsCurrentTransactionId(ZHeapTupleHeaderGetRawXid(tup, opaque)));
+
+	/*
+	 * Fixme : We need to enable combocid functionality once we define
+	 * delete/update for zheap.
+	 */
+	/* if (tup->t_infomask & HEAP_COMBOCID)
+		return GetRealCmin(cid);
+	else
+		return cid; */
+
+	return cid;
+}
+
+/*
+ * Initialize zheap page.
+ */
+void
+ZheapInitPage(Page page, Size pageSize)
+{
+	ZHeapPageOpaque	opaque;
+	int				i;
+
+	PageInit(page, pageSize, sizeof(ZHeapPageOpaque));
+
+	opaque = (ZHeapPageOpaque) PageGetSpecialPointer(page);
+
+	for (i = 0; i < MAX_PAGE_TRANS_INFO_SLOTS; i++)
+	{
+		opaque->transinfo[i].xid = InvalidTransactionId;
+		opaque->transinfo[i].cid = InvalidCommandId;
+		/* Fixme: set the InvalidUrecPtr once it is defined. */
+		opaque->transinfo[i].urec_ptr = -1;
+	}
 }
 
 /*
@@ -918,7 +1076,8 @@ zheapgetpage(HeapScanDesc scan, BlockNumber page)
 		if (ItemIdIsNormal(lpp))
 		{
 			ZHeapTupleData loctup;
-			bool		valid;
+			ZHeapTuple	resulttup;
+			bool		valid = false;
 
 			loctup.t_tableOid = RelationGetRelid(scan->rs_rd);
 			loctup.t_data = (ZHeapTupleHeader) PageGetItem((Page) dp, lpp);
@@ -929,9 +1088,22 @@ zheapgetpage(HeapScanDesc scan, BlockNumber page)
 				valid = true;
 			else
 			{
-				/* Fixme - Visibility checks needs to be implemented for zheap. */
-				valid = true;
-				/* valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer); */
+				resulttup = ZHeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
+
+				if (!resulttup)
+					valid = false;
+				else if (ItemPointerEquals(&resulttup->t_self, &loctup.t_self))
+					valid = true;
+				else
+				{
+					/*
+					 * Fixme: This can only happen once we have in-place updates.
+					 * We need to re-visit once we have in-place updates as then
+					 * it won't be feasible to maintain just an array of line
+					 * offsets.  We might want to maintain an array zheaptuples.
+					 */
+					Assert(false);
+				}
 			}
 
 			/* Fixme - Serialization failures needs to be detected for zheap. */

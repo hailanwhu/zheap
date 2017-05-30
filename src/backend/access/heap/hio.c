@@ -210,7 +210,7 @@ RelationAddExtraBlocks(Relation relation, BulkInsertState bistate)
 		page = BufferGetPage(buffer);
 		if (enable_zheap)
 		{
-			PageInit(page, BufferGetPageSize(buffer), sizeof(ZHeapPageOpaqueData));
+			ZheapInitPage(page, BufferGetPageSize(buffer));
 			freespace = PageGetZHeapFreeSpace(page);
 		}
 		else
@@ -610,7 +610,7 @@ loop:
 
 	if (enable_zheap)
 	{
-		PageInit(page, BufferGetPageSize(buffer), sizeof(ZHeapPageOpaqueData));
+		ZheapInitPage(page, BufferGetPageSize(buffer));
 		if (len > PageGetZHeapFreeSpace(page))
 		{
 			/* We should not get here given the test at the top */
