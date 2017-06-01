@@ -902,6 +902,10 @@ REVOKE ALL ON pg_replication_origin_status FROM public;
 
 REVOKE ALL ON pg_subscription FROM public;
 
+CREATE VIEW pg_stat_undo_logs AS
+    SELECT *
+    FROM pg_stat_get_undo_logs();
+
 --
 -- We have a few function definitions in here, too.
 -- At some point there might be enough to justify breaking them out into

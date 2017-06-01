@@ -5382,6 +5382,10 @@ DESCR("import collations from operating system");
 #define PROPARALLEL_RESTRICTED	'r'		/* can run in parallel master only */
 #define PROPARALLEL_UNSAFE		'u'		/* banned while in parallel mode */
 
+/* undo logs */
+DATA(insert OID = 3449 ( pg_stat_get_undo_logs PGNSP PGUID 12 1 10 0 0 f f f f f t s r 0 0 2249 "" "{26,26,20,20,20,20,28,23}" "{o,o,o,o,o,o,o,o}" "{log_number,tablespace,capacity,insert,mvcc,rollback,xid,pid}" _null_ _null_ pg_stat_get_undo_logs _null_ _null_ _null_ ));
+DESCR("list undo logs");
+
 /*
  * Symbolic values for proargmodes column.  Note that these must agree with
  * the FunctionParameterMode enum in parsenodes.h; we declare them here to
