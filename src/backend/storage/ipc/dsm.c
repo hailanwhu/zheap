@@ -454,6 +454,13 @@ dsm_set_control_handle(dsm_handle h)
 
 /*
  * Create a new dynamic shared memory segment.
+ *
+ * If there is a non-NULL CurrentResourceOwner, the new segment is associated
+ * with it and must be detached before the resource owner releases, or a
+ * warning will be logged.  If CurrentResourceOwner is NULL, the segment
+ * remains attached until explicitely detached or the session ends.
+ * Creating with a NULL CurrentResourceOwner is equivalent to creating
+ * with a non-NULL CurrentResourceOwner and then calling dsm_pin_mapping.
  */
 dsm_segment *
 dsm_create(Size size, int flags)
@@ -545,6 +552,11 @@ dsm_create(Size size, int flags)
  * This can happen if we're asked to attach the segment, but then everyone
  * else detaches it (causing it to be destroyed) before we get around to
  * attaching it.
+ *
+ * If there is a non-NULL CurrentResourceOwner, the attached segment is
+ * associated with it and must be detached before the resource owner releases,
+ * or a warning will be logged.  Otherwise the segment remains attached until
+ * explicitely detached or the session ends.  See the note atop dsm_create().
  */
 dsm_segment *
 dsm_attach(dsm_handle h)
@@ -1096,7 +1108,8 @@ dsm_create_descriptor(void)
 {
 	dsm_segment *seg;
 
-	ResourceOwnerEnlargeDSMs(CurrentResourceOwner);
+	if (CurrentResourceOwner)
+		ResourceOwnerEnlargeDSMs(CurrentResourceOwner);
 
 	seg = MemoryContextAlloc(TopMemoryContext, sizeof(dsm_segment));
 	dlist_push_head(&dsm_segment_list, &seg->node);
@@ -1108,7 +1121,8 @@ dsm_create_descriptor(void)
 	seg->mapped_size = 0;
 
 	seg->resowner = CurrentResourceOwner;
-	ResourceOwnerRememberDSM(CurrentResourceOwner, seg);
+	if (CurrentResourceOwner)
+		ResourceOwnerRememberDSM(CurrentResourceOwner, seg);
 
 	slist_init(&seg->on_detach);
 
