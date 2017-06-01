@@ -11051,6 +11051,21 @@ GetXLogWriteRecPtr(void)
 }
 
 /*
+ * Get the LSN of the checkpoint before last.
+ */
+XLogRecPtr
+GetPrevCheckPointRecPtr(void)
+{
+	XLogRecPtr result;
+
+	LWLockAcquire(ControlFileLock, LW_SHARED);
+	result = ControlFile->prevCheckPoint;
+	LWLockRelease(ControlFileLock);
+
+	return result;
+}
+
+/*
  * Returns the redo pointer of the last checkpoint or restartpoint. This is
  * the oldest point in WAL that we still need, if we have to restart recovery.
  */

@@ -579,6 +579,40 @@ UndoRecPtrGetTablespace(UndoRecPtr ptr)
 }
 
 /*
+ * Delete unreachable files under pg_undo.  Any files corresponding to LSN
+ * positions before the previous checkpoint are no longer needed.
+ */
+static void
+CleanUpUndoCheckPointFiles(void)
+{
+	DIR	   *dir;
+	struct dirent *de;
+	char	path[MAXPGPATH];
+	char	oldest_path[MAXPGPATH];
+
+	snprintf(oldest_path, MAXPGPATH, "%016" INT64_MODIFIER "X",
+			 GetPrevCheckPointRecPtr());
+	dir = AllocateDir("pg_undo");
+	while ((de = ReadDir(dir, "pg_undo")) != NULL)
+	{
+		/*
+		 * Assume that fixed width uppercase hex strings sort the same way as
+		 * the values they represent, so we can use memcmp to identify undo
+		 * log snapshot files corresponding to checkpoints that we don't need
+		 * anymore.  This assumption holds for ASCII.
+		 */
+		if (strlen(de->d_name) == 16 &&
+			memcmp(de->d_name, oldest_path, 16) < 0)
+		{
+			snprintf(path, MAXPGPATH, "pg_undo/%s", de->d_name);
+			if (unlink(path) != 0)
+				elog(ERROR, "could not unlink file \"%s\": %m", path);
+		}
+	}
+	FreeDir(dir);
+}
+
+/*
  * Write out the undo log meta data to the pg_undo directory.  The actual
  * contents of undo logs is in shared buffers and therefore handled by
  * CheckPointBuffers(), but here we record the table of undo logs and their
@@ -681,6 +715,8 @@ CheckPointUndoLogs(XLogRecPtr checkPointRedo)
 
 	if (serialized)
 		pfree(serialized);
+
+	CleanUpUndoCheckPointFiles();
 }
 
 void
