@@ -3006,7 +3006,7 @@ compute_new_xid_infomask(TransactionId tup_xid, uint16 old_infomask,
 						 TransactionId add_to_xid, LockTupleMode mode,
 						 bool is_update, uint16 *result_infomask)
 {
-	TransactionId new_xid;
+	TransactionId new_xid = InvalidTransactionId;
 	uint16		new_infomask;
 
 	Assert(TransactionIdIsValid(add_to_xid));
@@ -3086,8 +3086,6 @@ compute_new_xid_infomask(TransactionId tup_xid, uint16 old_infomask,
 				elog(ERROR, "invalid lock mode");
 		}
 	}
-
-	new_xid = new_xid;			/* silence compiler */
 
 	*result_infomask = new_infomask;
 }
