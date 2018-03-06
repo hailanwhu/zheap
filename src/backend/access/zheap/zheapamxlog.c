@@ -88,7 +88,7 @@ zheap_xlog_insert(XLogReaderState *record)
 	undorecord.uur_payload.len = 0;
 	undorecord.uur_tuple.len = 0;
 
-	urecptr = PrepareUndoInsert(&undorecord, UNDO_PERSISTENT, xid);
+	urecptr = PrepareUndoInsert(&undorecord, UNDO_PERMANENT, xid);
 	InsertPreparedUndo();
 	SetUndoPageLSNs(lsn);
 
@@ -287,7 +287,7 @@ zheap_xlog_delete(XLogReaderState *record)
 						   (char *) zheaptup.t_data,
 						   zheaptup.t_len);
 
-	urecptr = PrepareUndoInsert(&undorecord, UNDO_PERSISTENT, xid);
+	urecptr = PrepareUndoInsert(&undorecord, UNDO_PERMANENT, xid);
 	InsertPreparedUndo();
 	SetUndoPageLSNs(lsn);
 
@@ -486,7 +486,7 @@ zheap_xlog_update(XLogReaderState *record)
 	if (inplace_update)
 	{
 		undorecord.uur_type =  UNDO_INPLACE_UPDATE;
-		urecptr = PrepareUndoInsert(&undorecord, UNDO_PERSISTENT, xid);
+		urecptr = PrepareUndoInsert(&undorecord, UNDO_PERMANENT, xid);
 	}
 	else
 	{
@@ -497,7 +497,7 @@ zheap_xlog_update(XLogReaderState *record)
 		appendBinaryStringInfo(&undorecord.uur_payload,
 							   (char *) &newtid,
 							   sizeof(ItemPointerData));
-		urecptr = PrepareUndoInsert(&undorecord, UNDO_PERSISTENT, xid);
+		urecptr = PrepareUndoInsert(&undorecord, UNDO_PERMANENT, xid);
 
 		/* prepare an undo record for new tuple */
 		newundorecord.uur_type = UNDO_INSERT;
@@ -515,7 +515,7 @@ zheap_xlog_update(XLogReaderState *record)
 		newundorecord.uur_payload.len = 0;
 		newundorecord.uur_tuple.len = 0;
 
-		newurecptr = PrepareUndoInsert(&newundorecord, UNDO_PERSISTENT, xid);
+		newurecptr = PrepareUndoInsert(&newundorecord, UNDO_PERMANENT, xid);
 
 		Assert (newurecptr == xlnewundohdr->urec_ptr);
 	}
@@ -955,7 +955,7 @@ zheap_xlog_invalid_xact_slot(XLogReaderState *record)
 		undorecord[i].uur_payload.len = 0;
 		undorecord[i].uur_tuple.len = 0;
 
-		urecptr = PrepareUndoInsert(&undorecord[i], UNDO_PERSISTENT, xid);
+		urecptr = PrepareUndoInsert(&undorecord[i], UNDO_PERMANENT, xid);
 		all_slots[slot_no].urp = urecptr;
 
 		/* Stores latest undorec for slot for debug log */
@@ -1098,7 +1098,7 @@ zheap_xlog_lock(XLogReaderState *record)
 						   tup_hdr,
 						   SizeofZHeapTupleHeader);
 
-	urecptr = PrepareUndoInsert(&undorecord, UNDO_PERSISTENT, xid);
+	urecptr = PrepareUndoInsert(&undorecord, UNDO_PERMANENT, xid);
 	InsertPreparedUndo();
 	SetUndoPageLSNs(lsn);
 
@@ -1226,7 +1226,7 @@ zheap_xlog_multi_insert(XLogReaderState *record)
 		undorecord[i].uur_tuple.len = 0;
 		undorecord[i].uur_payload.len = 2 * sizeof(OffsetNumber);
 		undorecord[i].uur_payload.data = (char *)palloc(2 * sizeof(OffsetNumber));
-		urecptr = PrepareUndoInsert(&undorecord[i], UNDO_PERSISTENT, xid);
+		urecptr = PrepareUndoInsert(&undorecord[i], UNDO_PERMANENT, xid);
 
 		memcpy(undorecord[i].uur_payload.data,
 			   (char *) data,

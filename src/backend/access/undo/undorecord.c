@@ -795,7 +795,7 @@ PrepareUndoInsert(UnpackedUndoRecord *urec, UndoPersistence upersistence,
 		UndoLogSetLastXactStartPoint(urecptr);
 	}
 
-	UndoLogAdvance(urecptr, size);
+	UndoLogAdvance(urecptr, size, upersistence);
 	cur_blk = UndoRecPtrGetBlockNum(urecptr);
 	UndoRecPtrAssignRelFileNode(rnode, urecptr);
 	starting_byte = UndoRecPtrGetPageOffset(urecptr);

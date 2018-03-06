@@ -7374,7 +7374,10 @@ StartupXLOG(void)
 	 * end-of-recovery steps fail.
 	 */
 	if (InRecovery)
+	{
 		ResetUnloggedRelations(UNLOGGED_RELATION_INIT);
+		ResetUnloggedUndoLogs();
+	}
 
 	/*
 	 * We don't need the latch anymore. It's not strictly necessary to disown
