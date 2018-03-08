@@ -1116,6 +1116,7 @@ UndoLogGetFirstValidRecord(UndoLogNumber logno)
 {
 	UndoLogControl *log = get_undo_log_by_number(logno);
 
+	/* TODO: this needs locking or an assertion that the caller holds lock */
 	if (log == NULL || log->meta.discard == log->meta.insert)
 		return InvalidUndoRecPtr;
 

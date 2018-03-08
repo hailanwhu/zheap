@@ -523,11 +523,14 @@ UndoRecordUpdateTransactionInfo(UndoRecPtr urecptr)
 	 * if it's still invalid urp means this is the first undo record for this
 	 * log and we have nothing to update.
 	 */
-	if (!UndoRecPtrIsValid(prev_xact_urp) || InRecovery)
+	if (!UndoRecPtrIsValid(prev_xact_urp) ||
+		UndoRecPtrGetLogNo(prev_xact_urp) != logno || InRecovery)
 		prev_xact_urp = UndoLogGetLastXactStartPoint(logno);
 
 	if (!UndoRecPtrIsValid(prev_xact_urp))
 		return;
+
+	Assert(UndoRecPtrGetLogNo(prev_xact_urp) == logno);
 
 	/*
 	 * Acquire the discard lock before accessing the undo record so that
