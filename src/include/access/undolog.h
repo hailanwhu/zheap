@@ -227,12 +227,15 @@ typedef struct UndoLogMetaData
  */
 typedef struct UndoLogControl
 {
+	UndoLogNumber logno;
 	UndoLogMetaData meta;			/* current meta-data */
 	UndoLogMetaData checkpoint_meta;	/* snapshot for next checkpoint */
 	XLogRecPtr	checkpoint_lsn;
 	bool		checkpoint_in_progress;
 	bool	need_attach_wal_record;	/* need_attach_wal_record */
 	pid_t		pid;				/* InvalidPid for unattached */
+	TransactionId	oldest_xid;		/* cache of oldest transaction's xid */
+	uint32		oldest_xidepoch;
 	LWLock	mutex;					/* protects the above */
 
 	UndoLogNumber next_free;		/* protected by UndoLogLock */
@@ -270,7 +273,14 @@ extern void assign_undo_tablespaces(const char *newval, void *extra);
 extern void UndoLogCheckPointInProgress(bool checkpoint_in_progress);
 extern void CheckPointUndoLogs(XLogRecPtr checkPointRedo,
 							   XLogRecPtr priorCheckPointRedo);
-extern bool UndoLogNextActiveLog(UndoLogNumber *logno, Oid *spcNode);
+
+#ifndef FRONTEND
+
+extern UndoLogControl *UndoLogGet(UndoLogNumber logno);
+extern UndoLogControl *UndoLogNext(UndoLogControl *log);
+
+#endif
+
 extern void UndoLogGetDirtySegmentRange(UndoLogNumber logno,
 										int *low_segno, int *high_segno);
 extern void UndoLogSetHighestSyncedSegment(UndoLogNumber logno, int segno);
